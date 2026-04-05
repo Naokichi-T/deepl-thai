@@ -41,6 +41,15 @@
   // グロッサリーID（LocalStorageから復元する）
   let glossaryId = $state("");
 
+  // 独自用語集のON/OFF（LocalStorageから復元する）
+  let customGlossaryEnabled = $state(true);
+
+  // 独自用語集のエントリ一覧
+  let customGlossaryEntries = $state([]);
+
+  // Supabaseのセッショントークン
+  let accessToken = $state("");
+
   // 入力エリアのDOM要素への参照（高さ自動調節に使う）
   let sourceTextarea = $state(null);
 
@@ -57,18 +66,25 @@
     // LocalStorageからグロッサリーIDを復元する
     glossaryId = localStorage.getItem("glossaryId") || "";
 
+    // LocalStorageから独自用語集のON/OFFを復元する
+    const savedEnabled = localStorage.getItem("customGlossaryEnabled");
+    customGlossaryEnabled = savedEnabled !== "false";
+
     // ログインユーザーのセッションを取得する
     const { data: sessionData } = await supabase.auth.getSession();
     const userId = sessionData.session?.user?.id;
 
+    // セッショントークンを保存する
+    accessToken = sessionData.session?.access_token || "";
+
     if (userId) {
-      // user_settingsテーブルからAPIキーを取得する
-      const { data } = await supabase.from("user_settings").select("deepl_api_key").eq("user_id", userId).single();
+      const { data, error } = await supabase.from("user_settings").select("deepl_api_key").eq("user_id", userId).single();
 
       if (data) {
         apiKey = data.deepl_api_key;
-        // APIキーが取得できたら使用量も取得する
         await fetchUsage();
+        // 独自用語集を取得する（APIキー取得後に実行）
+        await fetchCustomGlossary();
       }
     }
 
@@ -98,6 +114,7 @@
 
   // 使用量を取得する関数
   async function fetchUsage() {
+    console.log("fetchUsage呼ばれた");
     const response = await fetch(`/api/usage?apiKey=${apiKey}`);
     const data = await response.json();
 
@@ -126,15 +143,17 @@
 
     const { sourceLang, targetLang } = getLangCodes();
 
+    // 独自用語集が有効な場合はプレースホルダーに置換してからDeepLに送る
+    const { text: textToTranslate, map: placeholderMap } = replaceToPaceholders(sourceText);
+
     const response = await fetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text: sourceText,
+        text: textToTranslate,
         sourceLang,
         targetLang,
         apiKey,
-        // グロッサリーIDがあれば送る
         glossaryId,
       }),
     });
@@ -144,11 +163,10 @@
     if (data.error) {
       errorMessage = data.error;
     } else {
-      translatedText = data.translatedText;
-      // 翻訳後に使用量を更新する
+      // 翻訳結果のプレースホルダーを用語集の単語に戻す
+      translatedText = restoreFromPlaceholders(data.translatedText, placeholderMap);
       await fetchUsage();
-      // 翻訳履歴をLocalStorageに保存する
-      saveHistory(sourceText, data.translatedText, direction);
+      saveHistory(sourceText, translatedText, direction);
     }
 
     isLoading = false;
@@ -231,6 +249,64 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // 独自用語集をSupabaseから取得する関数
+  async function fetchCustomGlossary() {
+    console.log("accessToken確認:", accessToken ? "有り" : "無し");
+    if (!accessToken) return;
+
+    const response = await fetch("/api/custom-glossary", {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+
+    const data = await response.json();
+    if (!data.error) {
+      customGlossaryEntries = data.entries;
+    }
+  }
+
+  // 独自用語集のON/OFFを切り替える関数
+  function toggleCustomGlossary() {
+    customGlossaryEnabled = !customGlossaryEnabled;
+    localStorage.setItem("customGlossaryEnabled", String(customGlossaryEnabled));
+  }
+
+  // 独自用語集の単語をプレースホルダーに置換する関数（翻訳前に呼ぶ）
+  // 例：「ユーチューブ」→「__TERM_0__」
+  function replaceToPaceholders(text) {
+    if (!customGlossaryEnabled || customGlossaryEntries.length === 0) {
+      return { text, map: {} };
+    }
+
+    let result = text;
+    const map = {}; // プレースホルダーと置換後の単語の対応表
+
+    customGlossaryEntries.forEach((entry, i) => {
+      const placeholder = `__TERM_${i}__`;
+      // 元の単語をプレースホルダーに置換する
+      if (result.includes(entry.source_text)) {
+        result = result.replaceAll(entry.source_text, placeholder);
+        // プレースホルダーに対応する置換後の単語を記録する
+        map[placeholder] = entry.target_text;
+      }
+    });
+
+    return { text: result, map };
+  }
+
+  // プレースホルダーを用語集の単語に戻す関数（翻訳後に呼ぶ）
+  // 例：「__TERM_0__」→「ยูทูป」
+  function restoreFromPlaceholders(text, map) {
+    let result = text;
+    for (const [placeholder, target] of Object.entries(map)) {
+      // プレースホルダーの前後にスペースが入った場合も対応する
+      result = result.replaceAll(` ${placeholder} `, target);
+      result = result.replaceAll(` ${placeholder}`, target);
+      result = result.replaceAll(`${placeholder} `, target);
+      result = result.replaceAll(placeholder, target);
+    }
+    return result;
+  }
+
   // 翻訳履歴をLocalStorageに保存する関数
   // 最新5件だけ保持し、古いものは自動で削除する
   function saveHistory(sourceText, translatedText, direction) {
@@ -279,7 +355,10 @@
         <a class="history-btn" href="/history" target="_blank" rel="noreferrer">履歴</a>
 
         <!-- グロッサリーページを別タブで開く -->
-        <a class="history-btn" href="/glossary" target="_blank" rel="noreferrer">用語集</a>
+        <!-- <a class="history-btn" href="/glossary" target="_blank" rel="noreferrer">用語集</a> -->
+
+        <!-- 独自用語集ページを別タブで開く -->
+        <a class="history-btn" href="/glossary/custom" target="_blank" rel="noreferrer">用語集</a>
 
         <button class="logout-btn" onclick={handleLogout}>ログアウト</button>
       </div>
@@ -299,8 +378,12 @@
 
     <!-- 言語ラベル行：グリッドの外に独立して配置 -->
     <div class="lang-row">
-      <!-- 左側：コピーボタンと対称にするための空スペース -->
-      <div class="lang-row-side"></div>
+      <!-- 左側：独自用語集のON/OFFボタン -->
+      <div class="lang-row-side">
+        <button class="glossary-toggle-btn" class:active={customGlossaryEnabled} onclick={toggleCustomGlossary} title="独自用語集の適用をON/OFFします">
+          用語集 {customGlossaryEnabled ? "ON" : "OFF"}
+        </button>
+      </div>
 
       <!-- 中央：タイ語 ⇄ 日本語 -->
       <div class="lang-row-center">
@@ -697,5 +780,26 @@
 
   .history-btn:hover {
     background: #f5f5f5;
+  }
+
+  /* 独自用語集ON/OFFボタン */
+  .glossary-toggle-btn {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 13px;
+    color: #aaa;
+    cursor: pointer;
+  }
+
+  .glossary-toggle-btn:hover {
+    background: #f5f5f5;
+  }
+
+  /* ONのときは色をつける */
+  .glossary-toggle-btn.active {
+    border-color: #7b78a8;
+    color: #7b78a8;
   }
 </style>
