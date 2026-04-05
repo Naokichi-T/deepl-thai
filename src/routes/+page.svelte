@@ -32,24 +32,51 @@
   // コピー完了メッセージを表示するかどうか
   let showCopied = $state(false);
 
+  // ↑ボタンを表示するかどうか（少しスクロールしたら表示）
+  let showScrollTop = $state(false);
+
+  // タイ語のフォントサイズ（18 / 20 / 22px）LocalStorageから復元する
+  let thaiFontSize = $state(20);
+
+  // 入力エリアのDOM要素への参照（高さ自動調節に使う）
+  let sourceTextarea = $state(null);
+
+  // 結果エリアのDOM要素への参照（高さをそろえるために使う）
+  let resultBox = $state(null);
+
   onMount(async () => {
+    // LocalStorageからタイ語フォントサイズを復元する
+    const saved = localStorage.getItem("thaiFontSize");
+    if (saved) {
+      thaiFontSize = parseInt(saved);
+    }
+
     // ログインユーザーのセッションを取得する
     const { data: sessionData } = await supabase.auth.getSession();
     const userId = sessionData.session?.user?.id;
 
     if (userId) {
       // user_settingsテーブルからAPIキーを取得する
-      const { data, error } = await supabase.from("user_settings").select("deepl_api_key").eq("user_id", userId).single();
+      const { data } = await supabase.from("user_settings").select("deepl_api_key").eq("user_id", userId).single();
 
       if (data) {
         apiKey = data.deepl_api_key;
-
         // APIキーが取得できたら使用量も取得する
         await fetchUsage();
       }
     }
 
     mounted = true;
+
+    // ページ表示後に入力欄に自動でフォーカスを当てる
+    setTimeout(() => {
+      sourceTextarea?.focus();
+    }, 0);
+
+    // スクロール量に応じて↑ボタンの表示を切り替える
+    window.addEventListener("scroll", () => {
+      showScrollTop = window.scrollY > 100;
+    });
   });
 
   // 使用量を取得する関数
@@ -99,7 +126,6 @@
       errorMessage = data.error;
     } else {
       translatedText = data.translatedText;
-
       // 翻訳後に使用量を更新する
       await fetchUsage();
     }
@@ -109,21 +135,21 @@
 
   // 翻訳方向を反転させる関数
   function toggleDirection() {
-    // 方向を切り替える
     direction = direction === "TH_JA" ? "JA_TH" : "TH_JA";
-
     // テキストエリアの内容も入れ替える
     const temp = sourceText;
     sourceText = translatedText;
     translatedText = temp;
+    // 方向切り替え後に高さをリセット
+    setTimeout(() => {
+      autoResize(sourceTextarea);
+    }, 0);
   }
 
   // 翻訳結果をクリップボードにコピーする関数
   async function copyResult() {
     if (!translatedText) return;
-
     await navigator.clipboard.writeText(translatedText);
-
     // 「コピーしました」を一時的に表示する
     showCopied = true;
     setTimeout(() => {
@@ -148,6 +174,41 @@
     if (num === null) return "-";
     return num.toLocaleString();
   }
+
+  // タイ語フォントサイズを変更してLocalStorageに保存する関数
+  function setThaiFontSize(size) {
+    thaiFontSize = size;
+    localStorage.setItem("thaiFontSize", String(size));
+  }
+
+  // 現在の翻訳方向に応じたフォントサイズを返す関数
+  // 日本語は常に18px、タイ語はユーザー設定値
+  function getSourceFontSize() {
+    return direction === "JA_TH" ? 18 : thaiFontSize;
+  }
+
+  function getResultFontSize() {
+    return direction === "TH_JA" ? 18 : thaiFontSize;
+  }
+
+  // textareaの高さをコンテンツに合わせて自動調節する関数
+  function autoResize(el) {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }
+
+  // sourceTextが変わるたびにtextareaの高さを調節してからそろえる
+  $effect(() => {
+    if (sourceText !== undefined) {
+      autoResize(sourceTextarea);
+    }
+  });
+
+  // ページ上部に戻る関数
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 </script>
 
 {#if mounted}
@@ -155,7 +216,20 @@
     <!-- ヘッダー -->
     <header>
       <h1>DeepL翻訳</h1>
-      <button class="logout-btn" onclick={handleLogout}>ログアウト</button>
+
+      <div class="header-right">
+        <!-- タイ語フォントサイズ切り替えボタン -->
+        <div class="font-size-btns">
+          <span class="font-size-label">タイ語文字サイズ：</span>
+          {#each [18, 20, 22] as size}
+            <button class="font-size-btn" class:active={thaiFontSize === size} onclick={() => setThaiFontSize(size)}>
+              {size}
+            </button>
+          {/each}
+        </div>
+
+        <button class="logout-btn" onclick={handleLogout}>ログアウト</button>
+      </div>
     </header>
 
     <!-- 使用量表示 -->
@@ -170,45 +244,66 @@
       </div>
     {/if}
 
-    <!-- 翻訳方向の切り替え -->
-    <div class="direction">
-      <span class="lang-label">
-        {direction === "TH_JA" ? "タイ語" : "日本語"}
-      </span>
-      <button class="toggle-btn" onclick={toggleDirection}>⇄</button>
-      <span class="lang-label">
-        {direction === "TH_JA" ? "日本語" : "タイ語"}
-      </span>
+    <!-- 言語ラベル行：グリッドの外に独立して配置 -->
+    <div class="lang-row">
+      <!-- 左側：コピーボタンと対称にするための空スペース -->
+      <div class="lang-row-side"></div>
+
+      <!-- 中央：タイ語 ⇄ 日本語 -->
+      <div class="lang-row-center">
+        <span class="lang-label">{direction === "TH_JA" ? "タイ語" : "日本語"}</span>
+        <button class="toggle-btn" onclick={toggleDirection}>⇄</button>
+        <span class="lang-label">{direction === "TH_JA" ? "日本語" : "タイ語"}</span>
+      </div>
+
+      <!-- 右側：コピーボタン -->
+      <div class="lang-row-side right">
+        {#if translatedText}
+          <button class="copy-btn" onclick={copyResult}>
+            {#if showCopied}
+              <span>✅ コピーしました</span>
+            {:else}
+              <span>コピー</span>
+            {/if}
+          </button>
+        {/if}
+      </div>
     </div>
 
-    <!-- 翻訳エリア -->
+    <!-- 翻訳エリア（左右2カラム） -->
     <div class="translate-area">
       <!-- 入力エリア -->
       <div class="text-box">
-        <textarea bind:value={sourceText} placeholder={direction === "TH_JA" ? "タイ語を入力..." : "日本語を入力..."} rows="6"></textarea>
+        <textarea
+          bind:this={sourceTextarea}
+          bind:value={sourceText}
+          placeholder={direction === "TH_JA" ? "タイ語を入力..." : "日本語を入力..."}
+          style="font-size: {getSourceFontSize()}px;"
+          oninput={() => autoResize(sourceTextarea)}
+        ></textarea>
         {#if sourceText}
           <button
             class="clear-btn"
             onclick={() => {
               sourceText = "";
               translatedText = "";
+              setTimeout(() => autoResize(sourceTextarea), 0);
             }}>✕</button
           >
         {/if}
       </div>
 
-      <!-- 翻訳ボタン -->
-      <button class="translate-btn" onclick={handleTranslate} disabled={isLoading || !sourceText.trim()}>
-        {isLoading ? "翻訳中..." : "翻訳する"}
-      </button>
+      <!-- 中央：翻訳ボタン -->
+      <div class="translate-btn-wrap">
+        <button class="translate-btn" onclick={handleTranslate} disabled={isLoading || !sourceText.trim()}>
+          {isLoading ? "..." : "翻訳"}
+        </button>
+      </div>
 
       <!-- 結果エリア -->
-      <div class="text-box result-box">
+      <div class="text-box result-box" bind:this={resultBox}>
         {#if translatedText}
-          <p class="result-text">{translatedText}</p>
-          <button class="copy-btn" onclick={copyResult}>
-            {showCopied ? "✅ コピーしました" : "コピー"}
-          </button>
+          <pre class="result-text" style="font-size: {getResultFontSize()}px;">{translatedText}</pre>
         {:else if errorMessage}
           <p class="error">{errorMessage}</p>
         {:else}
@@ -217,25 +312,71 @@
       </div>
     </div>
   </div>
+
+  <!-- 右下固定：ページ上部に戻るボタン（100px以上スクロールしたら表示） -->
+  {#if showScrollTop}
+    <button class="scroll-top-btn" onclick={scrollToTop}>↑</button>
+  {/if}
 {/if}
 
 <style>
   .container {
-    max-width: 640px;
+    max-width: 1400px;
     margin: 0 auto;
-    padding: 20px;
+    padding: 16px 20px;
   }
 
   header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: 12px;
   }
 
   h1 {
-    font-size: 24px;
+    font-size: 20px;
     margin: 0;
+  }
+
+  /* ヘッダー右側：フォントサイズボタン＋ログアウトをまとめる */
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  /* タイ語フォントサイズ切り替えボタン群 */
+  .font-size-btns {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .font-size-label {
+    font-size: 13px;
+    color: #666;
+    margin-right: 4px;
+  }
+
+  .font-size-btn {
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #555;
+  }
+
+  .font-size-btn:hover {
+    background: #e0e0e0;
+  }
+
+  /* 選択中のフォントサイズボタン */
+  .font-size-btn.active {
+    background: #7b78a8;
+    border-color: #7b78a8;
+    color: white;
   }
 
   .logout-btn {
@@ -254,53 +395,42 @@
 
   /* 使用量バー */
   .usage {
-    margin-bottom: 24px;
+    margin-bottom: 12px;
   }
 
   .usage-text {
     font-size: 13px;
     color: #666;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   .usage-bar {
-    height: 6px;
+    height: 4px;
     background: #eee;
-    border-radius: 3px;
+    border-radius: 2px;
     overflow: hidden;
   }
 
   .usage-bar-fill {
     height: 100%;
     background: #7b78a8;
-    border-radius: 3px;
+    border-radius: 2px;
     transition: width 0.3s;
-  }
-
-  /* 翻訳方向 */
-  .direction {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    margin-bottom: 16px;
   }
 
   .lang-label {
     font-size: 16px;
     font-weight: bold;
     color: #333;
-    min-width: 60px;
-    text-align: center;
   }
 
   .toggle-btn {
     background: #f0f0f0;
     border: none;
     border-radius: 50%;
-    width: 40px;
-    height: 40px;
-    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -311,10 +441,10 @@
     background: #e0e0e0;
   }
 
-  /* 翻訳エリア */
+  /* 翻訳エリア：3カラム×2行のグリッド */
   .translate-area {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     gap: 12px;
   }
 
@@ -323,15 +453,22 @@
     border: 1px solid #ddd;
     border-radius: 8px;
     overflow: hidden;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
   }
 
   textarea {
     width: 100%;
+    /* 最低限の高さ（画面の高さから上部UIを引いた分） */
+    min-height: calc(100vh - 200px);
     padding: 12px;
     border: none;
-    font-size: 16px;
-    resize: vertical;
+    /* コンテンツに応じて伸びるのでoverflowはvisibleに */
+    overflow: hidden;
+    resize: none;
     font-family: "Sarabun", sans-serif;
+    line-height: 1.7;
     box-sizing: border-box;
   }
 
@@ -353,20 +490,30 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    z-index: 1;
   }
 
   .clear-btn:hover {
     background: #ddd;
   }
 
+  /* 翻訳ボタンのラッパー：上端に合わせて配置 */
+  .translate-btn-wrap {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 12px;
+  }
+
   .translate-btn {
-    padding: 12px;
+    padding: 10px 16px;
     background: #7b78a8;
     color: white;
     border: none;
     border-radius: 8px;
-    font-size: 16px;
+    font-size: 15px;
     cursor: pointer;
+    white-space: nowrap;
   }
 
   .translate-btn:hover {
@@ -378,18 +525,46 @@
     cursor: not-allowed;
   }
 
+  /* 結果エリア */
   .result-box {
-    min-height: 120px;
     padding: 12px;
     background: #f9f9f9;
+    position: relative;
+    /* 最低限の高さをtextareaに合わせる */
+    min-height: calc(100vh - 200px);
+    box-sizing: border-box;
+  }
+
+  /* コピーボタンを結果エリアの右上に固定 */
+  .copy-btn {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .copy-btn:hover {
+    background: #f0f0f0;
+  }
+
+  .copy-btn span {
+    display: inline-block;
+    /* 「✅ コピーしました」の幅に合わせて固定する */
+    min-width: 110px;
+    text-align: center;
   }
 
   .result-text {
     margin: 0;
-    font-size: 16px;
-    line-height: 1.6;
+    line-height: 1.7;
     white-space: pre-wrap;
     font-family: "Sarabun", sans-serif;
+    /* preタグのデフォルトフォントを上書きする */
+    font-size: inherit;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
   }
 
   .placeholder {
@@ -404,17 +579,55 @@
     font-size: 14px;
   }
 
-  .copy-btn {
-    margin-top: 8px;
-    background: none;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    padding: 4px 12px;
-    font-size: 13px;
+  /* 右下固定：ページ上部に戻るボタン */
+  .scroll-top-btn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 44px;
+    height: 44px;
+    background: #7b78a8;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    font-size: 20px;
     cursor: pointer;
+    /* 他の要素より手前に表示する */
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   }
 
-  .copy-btn:hover {
-    background: #f0f0f0;
+  .scroll-top-btn:hover {
+    background: #6a6797;
+  }
+
+  /* 言語ラベル行全体 */
+  .lang-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+    position: relative;
+  }
+
+  /* 中央のタイ語⇄日本語をまとめるエリア */
+  .lang-row-center {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* 左右の余白エリア（コピーボタンと対称にするため同じ幅にする） */
+  .lang-row-side {
+    flex: 1;
+  }
+
+  /* 右側はコピーボタンを右端に寄せる */
+  .lang-row-side.right {
+    display: flex;
+    justify-content: flex-end;
   }
 </style>
