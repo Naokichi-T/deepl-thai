@@ -13,7 +13,7 @@ function getDeepLUrl(apiKey) {
 // POSTリクエストを受け取って翻訳結果を返す関数
 export async function POST({ request }) {
   // リクエストのボディからデータを取り出す
-  const { text, sourceLang, targetLang, apiKey } = await request.json();
+  const { text, sourceLang, targetLang, apiKey, glossaryId } = await request.json();
 
   // テキストが空の場合はエラーを返す
   if (!text || !text.trim()) {
@@ -49,6 +49,8 @@ export async function POST({ request }) {
         text: nonEmptyTexts,
         source_lang: sourceLang,
         target_lang: targetLang,
+        // グロッサリーIDがあれば翻訳に適用する
+        ...(glossaryId ? { glossary_id: glossaryId } : {}),
       }),
     });
 

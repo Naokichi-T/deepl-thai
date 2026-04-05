@@ -38,6 +38,9 @@
   // タイ語のフォントサイズ（18 / 20 / 22px）LocalStorageから復元する
   let thaiFontSize = $state(20);
 
+  // グロッサリーID（LocalStorageから復元する）
+  let glossaryId = $state("");
+
   // 入力エリアのDOM要素への参照（高さ自動調節に使う）
   let sourceTextarea = $state(null);
 
@@ -50,6 +53,9 @@
     if (saved) {
       thaiFontSize = parseInt(saved);
     }
+
+    // LocalStorageからグロッサリーIDを復元する
+    glossaryId = localStorage.getItem("glossaryId") || "";
 
     // ログインユーザーのセッションを取得する
     const { data: sessionData } = await supabase.auth.getSession();
@@ -128,6 +134,8 @@
         sourceLang,
         targetLang,
         apiKey,
+        // グロッサリーIDがあれば送る
+        glossaryId,
       }),
     });
 
@@ -269,6 +277,9 @@
 
         <!-- 履歴ページを別タブで開く -->
         <a class="history-btn" href="/history" target="_blank" rel="noreferrer">履歴</a>
+
+        <!-- グロッサリーページを別タブで開く -->
+        <a class="history-btn" href="/glossary" target="_blank" rel="noreferrer">用語集</a>
 
         <button class="logout-btn" onclick={handleLogout}>ログアウト</button>
       </div>
