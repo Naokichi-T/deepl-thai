@@ -167,7 +167,7 @@
     <div class="add-form">
       <input type="text" bind:value={newSource} placeholder="元の単語" class="input" onkeydown={handleKeydown} />
       <span class="arrow">→</span>
-      <input type="text" bind:value={newTarget} placeholder="置換後）" class="input" font-family="Sarabun" onkeydown={handleKeydown} />
+      <input type="text" bind:value={newTarget} placeholder="置換後" class="input" font-family="Sarabun" onkeydown={handleKeydown} />
       <button class="add-btn" onclick={addEntry} disabled={isAdding || !newSource.trim() || !newTarget.trim()}>
         {isAdding ? "追加中..." : "追加"}
       </button>
