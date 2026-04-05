@@ -92,10 +92,11 @@
     if (data.error) {
       errorMessage = data.error;
     } else {
-      // 一覧を再取得する
       await fetchEntries();
       newSource = "";
       newTarget = "";
+      // 翻訳画面に更新を知らせるフラグを立てる
+      localStorage.setItem("customGlossaryUpdated", Date.now().toString());
       showSuccess("追加しました");
     }
 
@@ -119,6 +120,8 @@
       errorMessage = data.error;
     } else {
       await fetchEntries();
+      // 翻訳画面に更新を知らせるフラグを立てる
+      localStorage.setItem("customGlossaryUpdated", Date.now().toString());
       showSuccess("削除しました");
     }
   }
@@ -162,9 +165,9 @@
 
     <!-- 単語追加フォーム -->
     <div class="add-form">
-      <input type="text" bind:value={newSource} placeholder="元の単語（例：がん）" class="input" onkeydown={handleKeydown} />
+      <input type="text" bind:value={newSource} placeholder="元の単語" class="input" onkeydown={handleKeydown} />
       <span class="arrow">→</span>
-      <input type="text" bind:value={newTarget} placeholder="置換後（例：มะเร็ง）" class="input" font-family="Sarabun" onkeydown={handleKeydown} />
+      <input type="text" bind:value={newTarget} placeholder="置換後）" class="input" font-family="Sarabun" onkeydown={handleKeydown} />
       <button class="add-btn" onclick={addEntry} disabled={isAdding || !newSource.trim() || !newTarget.trim()}>
         {isAdding ? "追加中..." : "追加"}
       </button>

@@ -110,11 +110,17 @@
     window.addEventListener("scroll", () => {
       showScrollTop = window.scrollY > 100;
     });
+
+    // 用語集が別タブで更新されたら自動で再取得する
+    window.addEventListener("storage", async (e) => {
+      if (e.key === "customGlossaryUpdated") {
+        await fetchCustomGlossary();
+      }
+    });
   });
 
   // 使用量を取得する関数
   async function fetchUsage() {
-    console.log("fetchUsage呼ばれた");
     const response = await fetch(`/api/usage?apiKey=${apiKey}`);
     const data = await response.json();
 
@@ -251,7 +257,6 @@
 
   // 独自用語集をSupabaseから取得する関数
   async function fetchCustomGlossary() {
-    console.log("accessToken確認:", accessToken ? "有り" : "無し");
     if (!accessToken) return;
 
     const response = await fetch("/api/custom-glossary", {
@@ -381,7 +386,11 @@
       <!-- 左側：独自用語集のON/OFFボタン -->
       <div class="lang-row-side">
         <button class="glossary-toggle-btn" class:active={customGlossaryEnabled} onclick={toggleCustomGlossary} title="独自用語集の適用をON/OFFします">
-          用語集 {customGlossaryEnabled ? "ON" : "OFF"}
+          <!-- トグルスイッチ部分 -->
+          <span class="toggle-switch">
+            <span class="toggle-knob"></span>
+          </span>
+          用語集
         </button>
       </div>
 
@@ -784,22 +793,55 @@
 
   /* 独自用語集ON/OFFボタン */
   .glossary-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     background: none;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    padding: 4px 12px;
+    border: none;
+    padding: 4px 0;
     font-size: 13px;
     color: #aaa;
     cursor: pointer;
   }
 
   .glossary-toggle-btn:hover {
-    background: #f5f5f5;
+    opacity: 0.8;
   }
 
-  /* ONのときは色をつける */
+  /* トグルスイッチの外枠 */
+  .toggle-switch {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    background: #ccc;
+    border-radius: 10px;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+
+  /* トグルスイッチの丸いノブ */
+  .toggle-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    background: white;
+    border-radius: 50%;
+    transition: left 0.2s;
+  }
+
+  /* ONのときのスタイル */
+  .glossary-toggle-btn.active .toggle-switch {
+    background: #7b78a8;
+  }
+
+  .glossary-toggle-btn.active .toggle-knob {
+    /* ノブを右側に移動する */
+    left: 19px;
+  }
+
   .glossary-toggle-btn.active {
-    border-color: #7b78a8;
-    color: #7b78a8;
+    color: #555;
   }
 </style>
