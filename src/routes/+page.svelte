@@ -68,6 +68,17 @@
 
     mounted = true;
 
+    // 履歴ページから復元データがあれば読み込む
+    const restore = localStorage.getItem("restoreTranslation");
+    if (restore) {
+      const parsed = JSON.parse(restore);
+      sourceText = parsed.sourceText;
+      translatedText = parsed.translatedText;
+      direction = parsed.direction;
+      // 読み込んだら削除する（余計なデータを残さない）
+      localStorage.removeItem("restoreTranslation");
+    }
+
     // ページ表示後に入力欄に自動でフォーカスを当てる
     setTimeout(() => {
       sourceTextarea?.focus();
@@ -128,6 +139,8 @@
       translatedText = data.translatedText;
       // 翻訳後に使用量を更新する
       await fetchUsage();
+      // 翻訳履歴をLocalStorageに保存する
+      saveHistory(sourceText, data.translatedText, direction);
     }
 
     isLoading = false;
@@ -209,6 +222,32 @@
   function scrollToTop() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  // 翻訳履歴をLocalStorageに保存する関数
+  // 最新5件だけ保持し、古いものは自動で削除する
+  function saveHistory(sourceText, translatedText, direction) {
+    const HISTORY_KEY = "translationHistory";
+    const MAX_HISTORY = 5;
+
+    // 既存の履歴を取得する（なければ空配列）
+    const existing = localStorage.getItem(HISTORY_KEY);
+    const history = existing ? JSON.parse(existing) : [];
+
+    // 新しい履歴を先頭に追加する
+    history.unshift({
+      sourceText,
+      translatedText,
+      direction,
+      // 日時を保存する（履歴ページで表示するため）
+      createdAt: new Date().toISOString(),
+    });
+
+    // 最新5件だけ残して古いものを削除する
+    const trimmed = history.slice(0, MAX_HISTORY);
+
+    // LocalStorageに保存する
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
+  }
 </script>
 
 {#if mounted}
@@ -227,6 +266,9 @@
             </button>
           {/each}
         </div>
+
+        <!-- 履歴ページを別タブで開く -->
+        <a class="history-btn" href="/history" target="_blank" rel="noreferrer">履歴</a>
 
         <button class="logout-btn" onclick={handleLogout}>ログアウト</button>
       </div>
@@ -629,5 +671,20 @@
   .lang-row-side.right {
     display: flex;
     justify-content: flex-end;
+  }
+
+  .history-btn {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 14px;
+    color: #555;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .history-btn:hover {
+    background: #f5f5f5;
   }
 </style>
